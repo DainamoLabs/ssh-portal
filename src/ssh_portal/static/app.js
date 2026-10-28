@@ -11,6 +11,8 @@ const $ = (id) => document.getElementById(id);
 const state = {
   configPath: null,
   example: "",
+  editable: false,
+  localUser: "",
   hosts: [],
   status: {},             // name -> {online, error}; missing while the first check runs
   view: "screens",
@@ -39,10 +41,18 @@ async function api(path, options = {}) {
   const res = await fetch(path, { headers: { "content-type": "application/json" }, ...options });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const detail = typeof body.detail === "string" ? body.detail : `${res.status} ${res.statusText}`;
+    const detail = typeof body.detail === "string"
+      ? body.detail
+      : Array.isArray(body.detail)
+        ? body.detail.map((d) => `${d.loc?.at(-1) ?? "value"}: ${d.msg}`).join("; ")
+        : `${res.status} ${res.statusText}`;
     throw new Error(detail);
   }
   return body;
+}
+
+function post(body) {
+  return { method: "POST", body: JSON.stringify(body) };
 }
 
 function describe(host) {
@@ -109,11 +119,16 @@ function buildWall() {
 
   if (!state.hosts.length) {
     wall.append(
-      h("div", { class: "empty" },
-        h("h1", {}, "No machines yet"),
-        h("p", {}, "Add each machine to ", h("code", {}, state.configPath || "hosts.toml"),
-          ", then restart ssh-portal. The README explains how to prepare a machine first."),
-        h("pre", {}, state.example)),
+      state.editable
+        ? h("div", { class: "empty" },
+            h("h1", {}, "No machines yet"),
+            h("p", {}, "Run ", h("code", {}, "scripts/setup-target.sh"),
+              " on each machine you want to control, then add it here."),
+            h("button", { type: "button", class: "btn primary", onclick: openAddDialog }, "Add a machine"))
+        : h("div", { class: "empty" },
+            h("h1", {}, "No machines yet"),
+            h("p", {}, "Add each machine to ", h("code", {}, "hosts.toml"), ", then restart ssh-portal."),
+            h("pre", {}, state.example)),
     );
     return;
   }
@@ -395,9 +410,9 @@ function buildRun() {
   picks.querySelector(".row")?.remove();
   const row = h("div", { class: "row" });
   for (const host of state.hosts) {
-    state.picked.add(host.name);
     const led = h("span", { class: "led", "aria-hidden": "true", "data-pick-led": host.name });
-    const button = h("button", { type: "button", class: "pick", "aria-pressed": "true" }, led, host.name);
+    const pressed = String(state.picked.has(host.name));
+    const button = h("button", { type: "button", class: "pick", "aria-pressed": pressed }, led, host.name);
     button.addEventListener("click", () => {
       const on = !state.picked.has(host.name);
       if (on) state.picked.add(host.name);
@@ -492,11 +507,223 @@ function renderStatus(name) {
   document.querySelectorAll(`[data-pick-led="${CSS.escape(name)}"]`).forEach((el) => setLed(el, led));
   if (state.focus?.name === name) setLed($("focus-led"), led);
 
+  renderFleet();
+}
+
+function renderFleet() {
   const known = state.hosts.filter((h) => state.status[h.name]);
   const online = known.filter((h) => state.status[h.name].online).length;
-  $("fleet-summary").textContent = known.length < state.hosts.length
-    ? "Checking machines…"
-    : `${online} of ${state.hosts.length} online`;
+  $("fleet-summary").textContent = !state.hosts.length
+    ? ""
+    : known.length < state.hosts.length
+      ? "Checking machines…"
+      : `${online} of ${state.hosts.length} online`;
+  $("fleet-refresh").hidden = !state.hosts.length;
+}
+
+/** Re-render everything that lists machines, after one is added or removed. */
+function refreshMachines() {
+  disconnectTiles();
+  buildWall();
+  buildRun();
+  renderTerminals();
+  for (const host of state.hosts) {
+    if (state.status[host.name]) renderStatus(host.name);
+  }
+  renderFleet();
+  if (state.view === "screens") connectTiles();
+}
+
+// ---------- add and remove machines ----------
+
+const adding = { installedKey: false };
+
+function openAddDialog() {
+  $("add-form").reset();
+  $("add-user").value = state.localUser;
+  $("add-checklist").replaceChildren();
+  $("add-checklist").hidden = true;
+  $("add-error").textContent = "";
+  $("add-check").textContent = "Check connection";
+  adding.installedKey = false;
+  $("add-dialog").showModal();
+  $("add-name").focus();
+}
+
+function addTarget() {
+  const port = $("add-port").value.trim();
+  return {
+    address: $("add-address").value.trim(),
+    port: port ? Number(port) : null,
+    user: $("add-user").value.trim() || null,
+  };
+}
+
+function knownHostsPattern({ address, port }) {
+  return port && port !== 22 ? `[${address}]:${port}` : address;
+}
+
+async function checkMachine() {
+  const target = addTarget();
+  $("add-error").textContent = "";
+  if (!target.address) {
+    $("add-error").textContent = "Enter the machine's address first.";
+    $("add-address").focus();
+    return;
+  }
+  const button = $("add-check");
+  button.disabled = true;
+  button.textContent = "Checking…";
+  try {
+    renderChecklist(target, await api("/api/machines/check", post(target)));
+  } catch (err) {
+    $("add-error").textContent = err.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = "Check again";
+  }
+}
+
+function renderChecklist(target, r) {
+  const item = (led, title, ...body) =>
+    h("li", { class: "check" },
+      h("span", { class: "led", "data-state": led, "aria-hidden": "true" }),
+      h("div", {}, h("div", { class: "check-title" }, title), ...body));
+  const p = (...children) => h("p", {}, ...children);
+  const code = (text) => h("code", {}, text);
+  const items = [];
+
+  if (!r.reachable) {
+    items.push(item("off", "Can't connect", p(r.error)));
+  } else {
+    items.push(item("on", "Machine answers"));
+
+    if (r.identity === "unknown") {
+      items.push(item("wait", "Confirm it's the right machine",
+        p("Compare this with the ", r.key_type, " fingerprint that setup-target.sh printed on that machine:"),
+        h("code", { class: "fingerprint" }, r.fingerprint),
+        h("button", { type: "button", class: "btn", onclick: () => trustMachine(target, r.fingerprint) },
+          "It matches, trust this machine")));
+    } else if (r.identity === "changed") {
+      items.push(item("off", "Identity doesn't match",
+        p("This machine's key is different from the one you trusted before. If you reinstalled it, run ",
+          code(`ssh-keygen -R '${knownHostsPattern(target)}'`), " in a terminal and check again. ",
+          "If you didn't, something may be impersonating it.")));
+    } else {
+      items.push(item("on", "Identity confirmed"));
+    }
+
+    if (r.identity === "trusted") {
+      if (r.login === "ok") {
+        items.push(item("on", "Logs in with your key",
+          adding.installedKey
+            ? p("Now turn off password logins on that machine: ", code("sudo ./setup-target.sh --lock"))
+            : null));
+        items.push(r.x11vnc
+          ? item("on", "Screen sharing ready")
+          : item("off", "Screen sharing isn't installed",
+              p("On that machine, run ", code("sudo apt install x11vnc"), ". Terminals and commands work without it.")));
+      } else if (r.login === "needs_key" && !r.have_key) {
+        items.push(item("off", "No SSH key on this computer",
+          p("In a terminal, run ", code("ssh-keygen -t ed25519"), ", then check again.")));
+      } else if (r.login === "needs_key") {
+        const user = target.user || state.localUser;
+        const input = h("input", { type: "password", autocomplete: "off", "aria-label": `Password for ${user}` });
+        const install = h("button", { type: "button", class: "btn" }, "Install my key");
+        install.addEventListener("click", () => installKey(target, input, install));
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            install.click();
+          }
+        });
+        items.push(item("wait", "Install your key",
+          adding.installedKey
+            ? p("Your key was copied, but logging in with it still fails. If your key has a passphrase, run ",
+                code("ssh-add"), " in a terminal, then check again.")
+            : p(`Enter ${user}'s password on that machine once. It's used to copy your key there and isn't stored.`),
+          h("div", { class: "inline-form" }, input, install)));
+      } else {
+        items.push(item("off", "Login failed", p(r.error)));
+      }
+    }
+  }
+
+  const list = $("add-checklist");
+  list.replaceChildren(...items);
+  list.hidden = false;
+}
+
+async function trustMachine(target, fingerprint) {
+  $("add-error").textContent = "";
+  try {
+    await api("/api/machines/trust", post({ ...target, fingerprint }));
+  } catch (err) {
+    $("add-error").textContent = err.message;
+    return;
+  }
+  await checkMachine();
+}
+
+async function installKey(target, input, button) {
+  const password = input.value;
+  input.value = "";
+  if (!password) return;
+  $("add-error").textContent = "";
+  button.disabled = true;
+  button.textContent = "Installing…";
+  try {
+    await api("/api/machines/install-key", post({ ...target, password }));
+    adding.installedKey = true;
+  } catch (err) {
+    $("add-error").textContent = err.message;
+    button.disabled = false;
+    button.textContent = "Install my key";
+    return;
+  }
+  await checkMachine();
+}
+
+async function saveMachine(event) {
+  event.preventDefault();
+  const body = {
+    name: $("add-name").value.trim(),
+    ...addTarget(),
+    display: $("add-display").value.trim() || ":0",
+  };
+  if (!body.name || !body.address) {
+    $("add-error").textContent = "Give the machine a name and an address.";
+    return;
+  }
+  let host;
+  try {
+    host = await api("/api/machines", post(body));
+  } catch (err) {
+    $("add-error").textContent = err.message;
+    return;
+  }
+  $("add-dialog").close();
+  state.hosts.push(host);
+  state.picked.add(host.name);
+  refreshMachines();
+  refreshStatus(host.name);
+}
+
+async function removeMachine(name) {
+  const ok = confirm(`Remove ${name} from ssh-portal?\n\nThis only edits your machine list. Nothing changes on ${name} itself.`);
+  if (!ok) return;
+  try {
+    await api(`/api/machines/${enc(name)}`, { method: "DELETE" });
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
+  closeTerminal(name);
+  state.hosts = state.hosts.filter((h) => h.name !== name);
+  state.picked.delete(name);
+  delete state.status[name];
+  show("screens");
+  refreshMachines();
 }
 
 // ---------- start ----------
@@ -510,6 +737,11 @@ async function start() {
   $("focus-scale").addEventListener("click", toggleScale);
   $("focus-full").addEventListener("click", () => $("focus-screen").requestFullscreen?.());
   $("fleet-refresh").addEventListener("click", refreshAll);
+  $("focus-remove").addEventListener("click", () => state.focus && removeMachine(state.focus.name));
+  $("add-open").addEventListener("click", openAddDialog);
+  $("add-check").addEventListener("click", checkMachine);
+  $("add-cancel").addEventListener("click", () => $("add-dialog").close());
+  $("add-form").addEventListener("submit", saveMachine);
   $("run-form").addEventListener("submit", runCommand);
   $("run-command").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("run-form").requestSubmit();
@@ -519,20 +751,20 @@ async function start() {
   state.hosts = config.hosts;
   state.configPath = config.config_path;
   state.example = config.example;
+  state.editable = config.editable;
+  state.localUser = config.local_user;
+  for (const host of state.hosts) state.picked.add(host.name);
+  $("add-open").hidden = !state.editable;
+  $("focus-remove").hidden = !state.editable;
 
   buildWall();
   buildRun();
   renderTerminals();
+  renderFleet();
   show("screens");
 
-  if (state.hosts.length) {
-    $("fleet-summary").textContent = "Checking machines…";
-    refreshAll();
-    setInterval(refreshAll, STATUS_EVERY_MS);
-  } else {
-    $("fleet-summary").textContent = "No machines configured";
-    $("fleet-refresh").hidden = true;
-  }
+  refreshAll();
+  setInterval(refreshAll, STATUS_EVERY_MS);
 }
 
 start().catch((err) => {

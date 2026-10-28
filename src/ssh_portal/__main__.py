@@ -74,10 +74,8 @@ def main() -> None:
         hosts = load_hosts(args.config)
     except ConfigError as exc:
         sys.exit(f"ssh-portal: {exc}")
-    if not hosts:
-        print(f"No hosts configured yet. Create {args.config} like this:\n\n{EXAMPLE}")
-        if args.check:
-            sys.exit(1)
+    if not hosts and args.check:
+        sys.exit(f"No machines in {args.config} yet. Add them in the web UI, or by hand like this:\n\n{EXAMPLE}")
 
     connections = Connections(hosts)
     if args.check:
@@ -99,7 +97,7 @@ def main() -> None:
         config_path=args.config,
         on_ready=None if args.no_browser else lambda: webbrowser.open(url),
     )
-    print(f"ssh-portal: {len(hosts)} host(s) from {args.config}")
+    print(f"ssh-portal: {len(hosts)} machine(s) in {args.config}" if hosts else "ssh-portal: no machines yet, add one in the browser")
     print(f"Open {url}")
     print("Anyone with this link can control your machines. Ctrl+C to stop.", flush=True)
     config = uvicorn.Config(app, log_level="info" if args.verbose else "warning")

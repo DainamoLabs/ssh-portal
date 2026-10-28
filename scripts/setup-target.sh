@@ -55,14 +55,16 @@ install_packages() {
     done
     cat <<EOF
 
-ssh will show one of these the first time you connect. Check it matches; that
-is what proves you're talking to this machine and not something pretending.
+ssh-portal (or ssh) will show one of these when you first connect. Check it
+matches; that is what proves you're talking to this machine and not
+something pretending to be it.
 
-Next, on the machine you'll run ssh-portal from:
+Next, in ssh-portal on your main machine, click "Add machine" and use:
 
-    ssh-keygen -t ed25519          # only if you don't have a key yet
-    ssh-copy-id $user@$addr
-    ssh $user@$addr true           # should log in without a password
+    Address:  $addr
+    User:     $user
+
+(Or from a terminal there: ssh-copy-id $user@$addr)
 
 Then come back here and run:
 

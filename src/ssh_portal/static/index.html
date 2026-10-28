@@ -20,6 +20,7 @@
     <div class="fleet">
       <span id="fleet-summary" aria-live="polite"></span>
       <button type="button" class="btn quiet" id="fleet-refresh">Check again</button>
+      <button type="button" class="btn" id="add-open">Add machine</button>
     </div>
   </header>
 
@@ -38,6 +39,7 @@
           <button type="button" class="btn quiet" id="focus-terminal">Terminal</button>
           <button type="button" class="btn quiet" id="focus-scale" aria-pressed="true">Fit to window</button>
           <button type="button" class="btn quiet" id="focus-full">Full screen</button>
+          <button type="button" class="btn quiet" id="focus-remove">Remove</button>
         </span>
       </div>
       <div class="focus-screen" id="focus-screen"></div>
@@ -67,5 +69,41 @@
       <div class="results" id="run-results"></div>
     </section>
   </main>
+
+  <dialog id="add-dialog" aria-labelledby="add-title">
+    <form id="add-form" novalidate>
+      <div class="dialog-body">
+        <h2 id="add-title">Add a machine</h2>
+        <p class="dialog-intro">
+          Run <code>scripts/setup-target.sh</code> on the machine first. It installs what's needed and
+          prints the fingerprint you'll compare below.
+        </p>
+        <div class="fields">
+          <label class="span-2">Name
+            <input id="add-name" autocomplete="off" spellcheck="false" placeholder="office">
+          </label>
+          <label class="span-2">Address
+            <input id="add-address" autocomplete="off" spellcheck="false" placeholder="192.168.1.20">
+          </label>
+          <label class="span-2">User on that machine
+            <input id="add-user" autocomplete="off" spellcheck="false">
+          </label>
+          <label>Port
+            <input id="add-port" type="number" min="1" max="65535" placeholder="22">
+          </label>
+          <label>Display
+            <input id="add-display" autocomplete="off" spellcheck="false" placeholder=":0">
+          </label>
+        </div>
+        <button type="button" class="btn" id="add-check">Check connection</button>
+        <ol class="checklist" id="add-checklist" aria-live="polite" hidden></ol>
+        <p class="form-error" id="add-error" role="alert"></p>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="btn quiet" id="add-cancel">Cancel</button>
+        <button type="submit" class="btn primary" id="add-save">Add machine</button>
+      </div>
+    </form>
+  </dialog>
 </body>
 </html>

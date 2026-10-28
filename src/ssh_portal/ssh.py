@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import defaultdict
+from contextlib import suppress
+from pathlib import Path
 from typing import Any
 
 import asyncssh
@@ -68,7 +71,27 @@ class Connections:
         self._connect_timeout = connect_timeout
         self._ssh_options = ssh_options or {}
         self._conns: dict[str, asyncssh.SSHClientConnection] = {}
-        self._locks = {name: asyncio.Lock() for name in self.hosts}
+        self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+
+    @property
+    def ssh_options(self) -> dict[str, Any]:
+        return dict(self._ssh_options)
+
+    @property
+    def known_hosts_path(self) -> Path:
+        """The file host keys are checked against, and where newly trusted ones go."""
+        return Path(self._ssh_options.get("known_hosts") or Path.home() / ".ssh" / "known_hosts")
+
+    def add(self, host: Host) -> None:
+        self.hosts[host.name] = host
+
+    async def remove(self, name: str) -> None:
+        self.hosts.pop(name, None)
+        conn = self._conns.pop(name, None)
+        if conn is not None:
+            conn.close()
+            with suppress(OSError, asyncssh.Error):
+                await conn.wait_closed()
 
     async def get(self, name: str) -> asyncssh.SSHClientConnection:
         host = self.hosts[name]

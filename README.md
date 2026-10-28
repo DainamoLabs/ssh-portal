@@ -33,8 +33,11 @@ carries everything over it:
   header, and WebSockets from any other origin, are refused, so web pages you
   visit can't reach the portal.
 - Host keys are checked against `~/.ssh/known_hosts` and your key comes from
-  ssh-agent or `~/.ssh`, just like the `ssh` command. Nothing is stored by
-  the portal.
+  ssh-agent or `~/.ssh`, just like the `ssh` command. When you add a machine,
+  its key is saved only after you've confirmed its fingerprint, and a key
+  that differs from the one on file is refused, never replaced.
+- Passwords are used once to install your key and never stored. The portal
+  stores nothing secret; the machine list holds only names and addresses.
 
 ## Setup
 
@@ -52,11 +55,31 @@ fingerprint, and tells you what to run next.
 
 ### 2. On the machine you'll run ssh-portal from
 
+Once, if you don't have an SSH key yet (use a passphrase; ssh-agent remembers it):
+
 ```sh
-ssh-keygen -t ed25519            # once; use a passphrase, ssh-agent remembers it
-ssh-copy-id you@192.168.1.20     # check the fingerprint matches step 1
-ssh you@192.168.1.20 true        # should not ask for a password
+ssh-keygen -t ed25519
 ```
+
+Then start the portal and click **Add machine**:
+
+```sh
+./run.sh
+```
+
+Enter the machine's name, address and your user on it, and click **Check
+connection**. A checklist walks you through the rest:
+
+- **Confirm it's the right machine.** Compare the fingerprint with the one
+  `setup-target.sh` printed. This is the step that stops anything else on
+  your network from posing as that machine, so do actually compare it.
+- **Install your key.** Enter your password for that machine once. It's
+  used for a single login that copies your public key there, and is never
+  stored.
+- **Screen sharing.** Tells you if x11vnc is missing.
+
+**Add machine** saves it to `~/.config/ssh-portal/hosts.toml` and it appears
+right away. **Remove** (in a machine's full-screen view) takes it out again.
 
 ### 3. Back on each machine: turn off password logins
 
@@ -65,9 +88,11 @@ sudo ./setup-target.sh --lock                       # keys only, no root, only y
 sudo ./setup-target.sh --allow-from 192.168.1.0/24  # optional: firewall SSH to your LAN
 ```
 
-### 4. List your machines
+### Editing the machine list by hand
 
-`~/.config/ssh-portal/hosts.toml`:
+The UI only appends and removes `[[host]]` entries, so your own comments in
+`~/.config/ssh-portal/hosts.toml` survive. You can also edit it directly
+(restart ssh-portal afterwards), and set up keys yourself with `ssh-copy-id`:
 
 ```toml
 [[host]]
@@ -83,11 +108,11 @@ user = "you"
 # display = ":0"
 ```
 
-### 5. Run it
+### Running it
 
 ```sh
 ./run.sh                     # starts on a free port and opens your browser
-uv run ssh-portal --check    # or first, test SSH to every machine
+uv run ssh-portal --check    # test SSH to every machine from the terminal
 ```
 
 `run.sh` passes extra arguments through, e.g. `./run.sh --config ~/hosts.toml`

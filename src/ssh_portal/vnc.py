@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import shlex
+from collections import defaultdict
 
 import asyncssh
 
@@ -86,7 +87,10 @@ class Screens:
     def __init__(self, connections: Connections) -> None:
         self._connections = connections
         self._sockets: dict[str, str] = {}
-        self._locks = {name: asyncio.Lock() for name in connections.hosts}
+        self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+
+    def forget(self, name: str) -> None:
+        self._sockets.pop(name, None)
 
     async def ensure(self, name: str, *, fresh: bool = False) -> str:
         """Return the remote socket path, starting x11vnc if it isn't running."""

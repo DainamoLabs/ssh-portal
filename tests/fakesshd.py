@@ -2,7 +2,8 @@
 
 It runs commands and PTY shells as the current user and allows Unix-socket
 forwarding, which is everything ssh-portal asks of a stock OpenSSH sshd. Keys
-and known_hosts are generated fresh for every server.
+and known_hosts are generated fresh for every server, and $HOME is a temp
+directory, so nothing a test does can reach your real ~/.ssh.
 """
 
 from __future__ import annotations
@@ -32,7 +33,9 @@ BASH = shutil.which("bash")
 class FakeServer:
     port: int
     known_hosts: Path
+    host_key: asyncssh.SSHKey
     client_key: asyncssh.SSHKey
+    home: Path
     server: asyncssh.SSHAcceptor
     clients: list[Connections] = field(default_factory=list)
 
@@ -61,6 +64,33 @@ class FakeServer:
 
 
 class _Server(asyncssh.SSHServer):
+    """Checks keys against $HOME/.ssh/authorized_keys on every login, like sshd."""
+
+    def __init__(self, home: Path, password: str | None) -> None:
+        self._authorized_keys = home / ".ssh" / "authorized_keys"
+        self._password = password
+
+    def begin_auth(self, username: str) -> bool:
+        return True
+
+    def public_key_auth_supported(self) -> bool:
+        return True
+
+    def validate_public_key(self, username: str, key: asyncssh.SSHKey) -> bool:
+        if not self._authorized_keys.exists():
+            return False
+        for line in self._authorized_keys.read_text().splitlines():
+            with suppress(asyncssh.KeyImportError, ValueError):
+                if line.strip() and asyncssh.import_public_key(line).public_data == key.public_data:
+                    return True
+        return False
+
+    def password_auth_supported(self) -> bool:
+        return self._password is not None
+
+    def validate_password(self, username: str, password: str) -> bool:
+        return password == self._password
+
     def unix_connection_requested(self, dest_path: str) -> bool:
         return True
 
@@ -146,12 +176,28 @@ async def _shell(process: asyncssh.SSHServerProcess, env: dict[str, str]) -> Non
     process.exit(code)
 
 
-async def start(tmp: Path, env: dict[str, str] | None = None) -> FakeServer:
-    """Listen on a free loopback port. `env` overrides the environment that commands see."""
+async def start(
+    tmp: Path,
+    env: dict[str, str] | None = None,
+    *,
+    password: str | None = None,
+    authorize_client: bool = True,
+    trust_host: bool = True,
+) -> FakeServer:
+    """Listen on a free loopback port. `env` overrides the environment that commands see.
+
+    By default the test's client key is already authorized and the server's host
+    key already trusted. Turn those off (and set a password) to get a machine
+    that's never been set up, the way `ssh-portal`'s Add machine flow sees one.
+    """
     host_key = asyncssh.generate_private_key("ssh-ed25519")
     client_key = asyncssh.generate_private_key("ssh-ed25519")
+    home = tmp / "home"
+    (home / ".ssh").mkdir(parents=True, exist_ok=True)
+    if authorize_client:
+        (home / ".ssh" / "authorized_keys").write_text(client_key.export_public_key().decode())
     command_env = {
-        "HOME": str(Path.home()),
+        "HOME": str(home),
         "USER": getpass.getuser(),
         "PATH": "/usr/local/bin:/usr/bin:/bin",
         "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"),
@@ -165,16 +211,22 @@ async def start(tmp: Path, env: dict[str, str] | None = None) -> FakeServer:
             await _exec(process, command_env)
 
     server = await asyncssh.create_server(
-        _Server,
+        lambda: _Server(Path(command_env["HOME"]), password),
         "127.0.0.1",
         0,
         server_host_keys=[host_key],
-        authorized_client_keys=asyncssh.import_authorized_keys(client_key.export_public_key().decode()),
         process_factory=handle,
         encoding=None,
         line_editor=False,
     )
     port = server.get_port()
     known_hosts = tmp / "known_hosts"
-    known_hosts.write_text(f"[127.0.0.1]:{port} {host_key.export_public_key().decode()}")
-    return FakeServer(port=port, known_hosts=known_hosts, client_key=client_key, server=server)
+    known_hosts.write_text(f"[127.0.0.1]:{port} {host_key.export_public_key().decode()}" if trust_host else "")
+    return FakeServer(
+        port=port,
+        known_hosts=known_hosts,
+        host_key=host_key,
+        client_key=client_key,
+        home=home,
+        server=server,
+    )
