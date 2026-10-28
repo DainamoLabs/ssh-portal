@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ssh_portal.config import Host, load_hosts
+from ssh_portal.discover import Nearby
 from ssh_portal.ssh import Connections
 from ssh_portal.web import create_app
 
@@ -11,8 +12,11 @@ PORT = 8765
 TOKEN = "machines-token"
 
 
-def client_for(config_path, hosts=()):
-    app = create_app(Connections(list(hosts)), token=TOKEN, port=PORT, config_path=config_path)
+def client_for(config_path, hosts=(), nearby=None):
+    async def found():
+        return nearby
+
+    app = create_app(Connections(list(hosts)), token=TOKEN, port=PORT, config_path=config_path, nearby=found)
     client = TestClient(app, base_url=f"http://127.0.0.1:{PORT}")
     client.cookies.set(f"ssh_portal_{PORT}", TOKEN)
     return client
@@ -70,3 +74,25 @@ def test_without_a_hosts_file_editing_is_off():
     with client_for(None) as client:
         assert client.get("/api/hosts").json()["editable"] is False
         assert client.post("/api/machines", json={"name": "a", "address": "x"}).status_code == 403
+
+
+def test_nearby_lists_machines_not_added_yet(config):
+    nearby = [
+        Nearby("den", "10.0.0.68", "william", None, "den.local"),
+        Nearby("attic", "attic.local", None, 2222, "attic.local"),
+        Nearby("office", "10.0.0.20", "you", None, "office.local"),
+    ]
+    added = [Host(name="office", address="office.local")]  # added by its .local name
+    with client_for(config, added, nearby) as client:
+        assert client.get("/api/machines/nearby").json() == {
+            "available": True,
+            "machines": [
+                {"name": "den", "address": "10.0.0.68", "user": "william", "port": None},
+                {"name": "attic", "address": "attic.local", "user": None, "port": 2222},
+            ],
+        }
+
+
+def test_nearby_says_when_it_cannot_look(config):
+    with client_for(config, nearby=None) as client:
+        assert client.get("/api/machines/nearby").json() == {"available": False, "machines": []}

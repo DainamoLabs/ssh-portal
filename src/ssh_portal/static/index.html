@@ -74,34 +74,48 @@
     <form id="add-form" novalidate>
       <div class="dialog-body">
         <h2 id="add-title">Add a machine</h2>
-        <p class="dialog-intro">
-          Run <code>sudo bash setup.sh</code> on the machine first. It shows the address, user and
-          fingerprint to use here.
-        </p>
-        <div class="fields">
-          <label class="span-2">Name
+
+        <div id="add-find">
+          <p class="dialog-intro">
+            On the machine you want to add, run <code>sudo bash setup.sh</code>. It's listed here
+            while setup.sh is running.
+          </p>
+          <ul class="nearby" id="add-nearby" aria-label="Machines running setup.sh"></ul>
+          <p class="nearby-status" id="add-nearby-status" aria-live="polite"></p>
+          <details class="manual" id="add-manual">
+            <summary>Enter its address instead</summary>
+            <div class="fields">
+              <label class="span-2">Address
+                <input id="add-address" autocomplete="off" spellcheck="false" placeholder="192.168.1.20">
+              </label>
+              <label class="span-2">User on that machine
+                <input id="add-user" autocomplete="off" spellcheck="false">
+              </label>
+              <label>Port
+                <input id="add-port" type="number" min="1" max="65535" placeholder="22">
+              </label>
+              <label>Display
+                <input id="add-display" autocomplete="off" spellcheck="false" placeholder=":0">
+              </label>
+            </div>
+            <button type="button" class="btn" id="add-continue">Continue</button>
+          </details>
+        </div>
+
+        <div id="add-confirm" hidden>
+          <p class="dialog-intro" id="add-where"></p>
+          <ol class="checklist" id="add-checklist" aria-live="polite"></ol>
+          <label class="name-field" id="add-name-field">Name in ssh-portal
             <input id="add-name" autocomplete="off" spellcheck="false" placeholder="office">
           </label>
-          <label class="span-2">Address
-            <input id="add-address" autocomplete="off" spellcheck="false" placeholder="192.168.1.20">
-          </label>
-          <label class="span-2">User on that machine
-            <input id="add-user" autocomplete="off" spellcheck="false">
-          </label>
-          <label>Port
-            <input id="add-port" type="number" min="1" max="65535" placeholder="22">
-          </label>
-          <label>Display
-            <input id="add-display" autocomplete="off" spellcheck="false" placeholder=":0">
-          </label>
         </div>
-        <button type="button" class="btn" id="add-check">Check connection</button>
-        <ol class="checklist" id="add-checklist" aria-live="polite" hidden></ol>
+
         <p class="form-error" id="add-error" role="alert"></p>
       </div>
       <div class="dialog-actions">
+        <button type="button" class="btn quiet" id="add-back" hidden>Back</button>
         <button type="button" class="btn quiet" id="add-cancel">Cancel</button>
-        <button type="submit" class="btn primary" id="add-save">Add machine</button>
+        <button type="submit" class="btn primary" id="add-save" hidden>Add machine</button>
       </div>
     </form>
   </dialog>

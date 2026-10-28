@@ -25,6 +25,7 @@ from starlette.responses import PlainTextResponse, RedirectResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.websockets import WebSocketClose, WebSocketDisconnect
 
+from . import discover
 from .config import EXAMPLE, ConfigError, Host, add_host, parse_host, remove_host
 from .onboard import Onboarding, OnboardingError
 from .ssh import Connections, HostUnavailable
@@ -186,6 +187,7 @@ def create_app(
     port: int,
     config_path: Path | None = None,
     onboarding: Onboarding | None = None,
+    nearby: Callable[[], Awaitable[list[discover.Nearby] | None]] = discover.nearby,
     on_ready: Callable[[], None] | None = None,
 ) -> ASGIApp:
     screens = Screens(connections)
@@ -220,6 +222,22 @@ def create_app(
         }
 
     # ---- adding and removing machines ----
+
+    @app.get("/api/machines/nearby")
+    async def nearby_machines() -> dict[str, Any]:
+        """Machines running setup.sh right now, minus the ones already added."""
+        found = await nearby()
+        if found is None:
+            return {"available": False, "machines": []}
+        added = {(h.address, h.port) for h in connections.hosts.values()}
+        return {
+            "available": True,
+            "machines": [
+                {"name": m.name, "address": m.address, "user": m.user, "port": m.port}
+                for m in found
+                if (m.address, m.port) not in added and (m.hostname, m.port) not in added
+            ],
+        }
 
     @app.post("/api/machines/check")
     async def check_machine(req: MachineTarget) -> dict[str, Any]:

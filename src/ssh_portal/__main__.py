@@ -14,6 +14,7 @@ from pathlib import Path
 
 import uvicorn
 
+from . import keys
 from .config import EXAMPLE, ConfigError, default_config_path, load_hosts
 from .ssh import Connections
 
@@ -77,6 +78,7 @@ def main() -> None:
     if not hosts and args.check:
         sys.exit(f"No machines in {args.config} yet. Add them in the web UI, or by hand like this:\n\n{EXAMPLE}")
 
+    keys.prepare()
     connections = Connections(hosts)
     if args.check:
         sys.exit(asyncio.run(check(connections)))

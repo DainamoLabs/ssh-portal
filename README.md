@@ -38,23 +38,27 @@ carries everything over it:
   that differs from the one on file is refused, never replaced.
 - Passwords are used once to install your key and never stored. The portal
   stores nothing secret; the machine list holds only names and addresses.
+- While `setup.sh` waits to be added, it announces the machine over mDNS, the
+  way printers do, so **Add machine** can list it. The portal asks the avahi
+  daemon your desktop already runs rather than listening itself. Anything on
+  your network could announce itself, so the listing only saves typing an
+  address: trust still comes from comparing the fingerprint.
 
 ## Setup
 
 Two scripts: `run.sh` runs on your main computer, `setup.sh` on each machine
 you want to control.
 
-### Once, on your main computer
-
-Create an SSH key if you don't have one. Use a passphrase, and load the key
-into ssh-agent so the portal can use it:
+### On your main computer
 
 ```sh
-ssh-keygen -t ed25519
-ssh-add          # again after you log in, if the portal ever says "Key not accepted"
+./run.sh
 ```
 
-Then start the portal with `./run.sh` (see [Running it](#running-it)).
+The first time, it offers to create an SSH key (the portal logs in with it)
+and asks you for a passphrase to protect it. Each time after that it asks for
+the passphrase once, if your desktop hasn't unlocked the key already. Then it
+opens the portal in your browser. See [Running it](#running-it) for options.
 
 ### For each machine you want to control
 
@@ -64,35 +68,38 @@ Then start the portal with `./run.sh` (see [Running it](#running-it)).
    sudo bash setup.sh
    ```
 
-   It installs `openssh-server` and `x11vnc`, then shows the name, address
-   and user to enter in the portal, and the fingerprint to compare. Leave it
-   running. To get the file there, copy it on a USB stick, or, if this
-   repository is public, download it:
+   It installs `openssh-server` and `x11vnc` and asks two questions: whether
+   to turn off password logins once your key is in (say yes), and whether the
+   machine runs without a monitor (see [below](#machines-without-a-monitor)).
+   Then it shows a fingerprint and waits. To get the file there, copy it on a
+   USB stick, or, if this repository is public, download it:
 
    ```sh
    wget https://raw.githubusercontent.com/DainamoLabs/ssh-portal/master/setup.sh
    ```
 
-2. **In the portal**, click **Add machine**, enter what `setup.sh` shows, and
-   click **Check connection**. A checklist walks you through the rest:
+2. **In the portal**, click **Add machine**. The machine is listed there while
+   `setup.sh` runs. Click it, then:
 
-   - **Confirm it's the right machine.** The fingerprint must match the one
-     `setup.sh` shows, exactly. This is what stops anything else on your
-     network from posing as that machine, so do compare it.
-   - **Install your key.** Enter your password for that machine once. It's
-     used for a single login that copies your public key there, and is
-     never stored.
-   - **Screen sharing.** Tells you if x11vnc is missing.
+   - **Compare the fingerprint** with the one `setup.sh` shows. It must match
+     exactly. This is what stops anything else on your network from posing as
+     that machine, so do compare it.
+   - **Enter your password** for that machine. It's used once to copy your key
+     there, and never stored.
 
-   Click **Add machine**. It's saved to `~/.config/ssh-portal/hosts.toml` and
-   appears right away. **Remove** (in a machine's full-screen view) takes it
-   out again.
+   Click **It matches, add machine**. The machine is saved to
+   `~/.config/ssh-portal/hosts.toml` and its screen appears right away.
 
-3. **Back on that machine**, `setup.sh` notices your key arrived. It offers
-   to turn off password logins (say yes), and asks whether the machine runs
-   without a monitor (see [below](#machines-without-a-monitor)).
+That's it. Back on the machine, `setup.sh` sees your key arrive, turns off
+password logins and exits by itself.
 
-Each step can also be run on its own later:
+If the machine isn't listed (avahi isn't running on it, a firewall blocks
+mDNS, or it's on another subnet), choose **Enter its address instead** and
+type the address `setup.sh` shows. **Remove**, in a machine's full-screen view, takes it out of the list
+again. If a listed machine stops accepting the portal (you reinstalled it,
+say), its tile offers **Finish setup**, which runs the same two steps.
+
+Each part of `setup.sh` can also be run on its own:
 
 ```sh
 sudo bash setup.sh --lock                       # keys only, no root, only you
@@ -128,7 +135,9 @@ uv run ssh-portal --check    # test SSH to every machine from the terminal
 ```
 
 `run.sh` passes extra arguments through, e.g. `./run.sh --config ~/hosts.toml`
-or `./run.sh --port 8765` for a fixed port.
+or `./run.sh --port 8765` for a fixed port. Started outside a desktop session
+(over SSH, or on a text console), it runs its own ssh-agent for as long as
+the portal runs.
 
 ## Machines without a monitor
 
@@ -150,9 +159,9 @@ Every error in the UI says what to do. The common ones:
 
 | Message | Fix |
 | --- | --- |
-| Host key not trusted yet | `ssh you@machine` once in a terminal and accept the fingerprint |
-| Key not accepted | `ssh-copy-id you@machine`, and `ssh-add` if your key has a passphrase |
+| Finish setting up *machine* | click **Finish setup** on its tile: compare the fingerprint, enter its password once |
 | Connection refused | run `setup.sh` on that machine (openssh-server isn't running) |
+| Machine isn't listed in Add machine | use **Enter its address instead** with the address `setup.sh` shows |
 | x11vnc is not installed | `sudo apt install x11vnc` on that machine |
 | x11vnc exited. Is someone logged in…? | log in on that machine, or use `--autologin` |
 

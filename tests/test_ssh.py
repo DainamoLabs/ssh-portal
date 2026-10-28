@@ -79,6 +79,7 @@ async def test_unknown_host_key_explains_how_to_trust_it(sshd, tmp_path):
     )
     with pytest.raises(HostUnavailable, match=r"Host key not trusted yet. Run `ssh .*127.0.0.1 -p \d+` once"):
         await conns.get("local")
+    assert (await conns.status("local"))["needs"] == "trust"
 
 
 async def test_rejected_key_suggests_ssh_copy_id(sshd):
@@ -86,6 +87,7 @@ async def test_rejected_key_suggests_ssh_copy_id(sshd):
     conns = fakesshd.Connections([sshd.host()], ssh_options={**sshd.ssh_options(), "client_keys": [stranger]})
     with pytest.raises(HostUnavailable, match="ssh-copy-id"):
         await conns.get("local")
+    assert (await conns.status("local"))["needs"] == "key"
 
 
 async def test_closed_port_says_sshd_is_not_running(sshd, free_port):

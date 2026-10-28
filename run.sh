@@ -9,4 +9,11 @@ if ! command -v uv >/dev/null; then
     exit 1
 fi
 
+# Desktop sessions run an ssh-agent; without one (on a text console, say),
+# run under an agent that lasts as long as ssh-portal, so a key with a
+# passphrase can still be unlocked once at startup.
+if [ -z "${SSH_AUTH_SOCK:-}" ] && command -v ssh-agent >/dev/null; then
+    exec ssh-agent "$0" "$@"
+fi
+
 exec uv run ssh-portal --port 0 "$@"

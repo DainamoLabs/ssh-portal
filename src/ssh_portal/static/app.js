@@ -99,6 +99,12 @@ function show(view) {
 
 // ---------- screens ----------
 
+// Machines that answer but can't be logged in to yet, by what's missing.
+const SETUP_LEFT = {
+  trust: "ssh-portal hasn't confirmed this machine's identity yet.",
+  key: "It doesn't accept your key yet.",
+};
+
 async function attachScreen(name, container, { viewOnly }) {
   await api(`/api/hosts/${enc(name)}/screen`, { method: "POST" });
   const rfb = new RFB(container, `${WS_BASE}/ws/vnc/${enc(name)}`, { shared: true });
@@ -123,7 +129,7 @@ function buildWall() {
         ? h("div", { class: "empty" },
             h("h1", {}, "No machines yet"),
             h("p", {}, "Run ", h("code", {}, "sudo bash setup.sh"),
-              " on each machine you want to control. It shows what to enter here."),
+              " on each machine you want to control, then add it here."),
             h("button", { type: "button", class: "btn primary", onclick: openAddDialog }, "Add a machine"))
         : h("div", { class: "empty" },
             h("h1", {}, "No machines yet"),
@@ -172,7 +178,12 @@ async function connectTile(name) {
     return;
   }
   if (!status.online) {
-    setNotice(tile.notice, `Can't reach ${name}`, status.error, { label: "Check again", run: () => refreshStatus(name) });
+    const unfinished = SETUP_LEFT[status.needs];
+    if (unfinished) {
+      setNotice(tile.notice, `Finish setting up ${name}`, unfinished, { label: "Finish setup", run: () => openRepairDialog(name) });
+    } else {
+      setNotice(tile.notice, `Can't reach ${name}`, status.error, { label: "Check again", run: () => refreshStatus(name) });
+    }
     return;
   }
 
@@ -536,178 +547,297 @@ function refreshMachines() {
 
 // ---------- add and remove machines ----------
 
-const adding = { installedKey: false };
+const NEARBY_EVERY_MS = 3_000;
 
-function openAddDialog() {
-  $("add-form").reset();
-  $("add-user").value = state.localUser;
-  $("add-checklist").replaceChildren();
-  $("add-checklist").hidden = true;
+const adding = {
+  repairing: null,      // name of a listed machine being finished, or null when adding a new one
+  target: null,         // {address, port, user}
+  display: ":0",
+  result: null,         // the latest check of target
+  installedKey: false,
+  checkRun: 0,          // so a slow, stale check can't overwrite a newer one
+  nearbyRun: 0,
+  nearbyTimer: null,
+  nearbyShown: "",
+};
+
+function addStep(step) {
+  $("add-find").hidden = step !== "find";
+  $("add-confirm").hidden = step !== "confirm";
+  $("add-back").hidden = step !== "confirm" || adding.repairing !== null;
+  $("add-save").hidden = step !== "confirm";
   $("add-error").textContent = "";
-  $("add-check").textContent = "Check connection";
-  adding.installedKey = false;
-  $("add-dialog").showModal();
-  $("add-name").focus();
+  adding.checkRun++;
+  adding.nearbyRun++;
+  clearTimeout(adding.nearbyTimer);
+  if (step === "find") pollNearby();
 }
 
-function addTarget() {
+function resetAdding(fields) {
+  $("add-form").reset();
+  $("add-checklist").replaceChildren();
+  Object.assign(adding, { target: null, display: ":0", result: null, installedKey: false, ...fields });
+}
+
+function openAddDialog() {
+  resetAdding({ repairing: null, nearbyShown: "" });
+  $("add-title").textContent = "Add a machine";
+  $("add-name-field").hidden = false;
+  $("add-user").value = state.localUser;
+  $("add-manual").open = false;
+  $("add-nearby").replaceChildren();
+  $("add-nearby-status").textContent = "";
+  $("add-dialog").showModal();
+  addStep("find");
+}
+
+/** Trust and install the key for a machine that's listed but can't log in yet. */
+function openRepairDialog(name) {
+  const host = state.hosts.find((h) => h.name === name);
+  if (!host) return;
+  resetAdding({
+    repairing: name,
+    target: { address: host.address, port: host.port, user: host.user },
+    display: host.display,
+  });
+  $("add-title").textContent = `Finish setting up ${name}`;
+  $("add-name-field").hidden = true;
+  $("add-dialog").showModal();
+  addStep("confirm");
+  checkMachine();
+}
+
+async function pollNearby() {
+  const run = adding.nearbyRun;
+  let found;
+  try {
+    found = await api("/api/machines/nearby");
+  } catch {
+    found = { available: true, machines: [] };
+  }
+  if (run !== adding.nearbyRun || !$("add-dialog").open) return;
+  renderNearby(found);
+  // Without avahi on this computer, there's nothing to wait for.
+  if (found.available) adding.nearbyTimer = setTimeout(pollNearby, NEARBY_EVERY_MS);
+}
+
+function renderNearby({ available, machines }) {
+  if (!available) {
+    $("add-nearby-status").textContent =
+      "To list machines here automatically, install avahi-utils on this computer. Until then, enter the address setup.sh shows.";
+    $("add-manual").open = true;
+  } else {
+    $("add-nearby-status").textContent = machines.length ? "" : "Looking for machines running setup.sh…";
+  }
+  // Rebuilding an unchanged list every few seconds would steal keyboard focus.
+  const shown = JSON.stringify(machines);
+  if (shown === adding.nearbyShown) return;
+  adding.nearbyShown = shown;
+  $("add-nearby").replaceChildren(...machines.map((machine) =>
+    h("li", {},
+      h("button", { type: "button", class: "nearby-item", onclick: () => pickNearby(machine) },
+        h("span", { class: "led", "data-state": "on", "aria-hidden": "true" }),
+        h("span", { class: "name" }, machine.name),
+        h("span", { class: "where" }, describe(machine)),
+        h("span", { class: "nearby-add" }, "Add")))));
+}
+
+function pickNearby(machine) {
+  adding.target = { address: machine.address, port: machine.port, user: machine.user };
+  adding.display = ":0";
+  $("add-name").value = machine.name;
+  addStep("confirm");
+  checkMachine();
+}
+
+function continueManual() {
   const port = $("add-port").value.trim();
-  return {
+  const target = {
     address: $("add-address").value.trim(),
     port: port ? Number(port) : null,
     user: $("add-user").value.trim() || null,
   };
+  if (!target.address) {
+    $("add-error").textContent = "Enter the machine's address first.";
+    $("add-address").focus();
+    return;
+  }
+  adding.target = target;
+  adding.display = $("add-display").value.trim() || ":0";
+  // A hostname makes a good name for the machine; an IP address doesn't.
+  const host = target.address.replace(/\.local$/, "");
+  $("add-name").value = /^[\d.]+$|:/.test(host) ? "" : host.split(".")[0];
+  addStep("confirm");
+  checkMachine();
 }
 
 function knownHostsPattern({ address, port }) {
   return port && port !== 22 ? `[${address}]:${port}` : address;
 }
 
-async function checkMachine() {
-  const target = addTarget();
-  $("add-error").textContent = "";
-  if (!target.address) {
-    $("add-error").textContent = "Enter the machine's address first.";
-    $("add-address").focus();
+async function checkMachine({ keepError = false } = {}) {
+  const run = ++adding.checkRun;
+  const target = adding.target;
+  if (!keepError) $("add-error").textContent = "";
+  $("add-where").textContent = describe(target);
+  if (!adding.result) {
+    $("add-checklist").replaceChildren(
+      h("li", { class: "check" },
+        h("span", { class: "led", "data-state": "wait", "aria-hidden": "true" }),
+        h("div", { class: "check-title" }, `Checking ${describe(target)}…`)));
+  }
+  $("add-save").disabled = true;
+  let result;
+  try {
+    result = await api("/api/machines/check", post(target));
+  } catch (err) {
+    if (run === adding.checkRun) {
+      $("add-checklist").replaceChildren();
+      $("add-error").textContent = err.message;
+    }
     return;
   }
-  const button = $("add-check");
-  button.disabled = true;
-  button.textContent = "Checking…";
-  try {
-    renderChecklist(target, await api("/api/machines/check", post(target)));
-  } catch (err) {
-    $("add-error").textContent = err.message;
-  } finally {
-    button.disabled = false;
-    button.textContent = "Check again";
-  }
+  if (run !== adding.checkRun) return;
+  adding.result = result;
+  renderChecklist(result);
 }
 
-function renderChecklist(target, r) {
+function renderChecklist(r) {
   const item = (led, title, ...body) =>
     h("li", { class: "check" },
       h("span", { class: "led", "data-state": led, "aria-hidden": "true" }),
       h("div", {}, h("div", { class: "check-title" }, title), ...body));
   const p = (...children) => h("p", {}, ...children);
   const code = (text) => h("code", {}, text);
+  const user = adding.target.user || state.localUser;
   const items = [];
+  let ready = false;
 
   if (!r.reachable) {
-    items.push(item("off", "Can't connect", p(r.error)));
+    items.push(item("off", "Can't connect", p(r.error),
+      h("button", { type: "button", class: "btn", onclick: () => checkMachine() }, "Check again")));
+  } else if (r.identity === "changed") {
+    items.push(item("off", "Identity doesn't match",
+      p("This machine's key is different from the one you trusted before. If you reinstalled it, run ",
+        code(`ssh-keygen -R '${knownHostsPattern(adding.target)}'`), " in a terminal and check again. ",
+        "If you didn't, something may be impersonating it.")));
   } else {
-    items.push(item("on", "Machine answers"));
+    items.push(r.identity === "unknown"
+      ? item("wait", "Confirm it's the right machine",
+          p("setup.sh on that machine shows a fingerprint. It must match this one exactly:"),
+          h("code", { class: "fingerprint" }, r.fingerprint),
+          p("If it doesn't, cancel: something else is answering at this address."))
+      : item("on", "Identity confirmed"));
 
-    if (r.identity === "unknown") {
-      items.push(item("wait", "Confirm it's the right machine",
-        p("Compare it with the fingerprint setup.sh shows on that machine. They must match exactly:"),
-        h("code", { class: "fingerprint" }, r.fingerprint),
-        h("button", { type: "button", class: "btn", onclick: () => trustMachine(target, r.fingerprint) },
-          "It matches, trust this machine")));
-    } else if (r.identity === "changed") {
-      items.push(item("off", "Identity doesn't match",
-        p("This machine's key is different from the one you trusted before. If you reinstalled it, run ",
-          code(`ssh-keygen -R '${knownHostsPattern(target)}'`), " in a terminal and check again. ",
-          "If you didn't, something may be impersonating it.")));
-    } else {
-      items.push(item("on", "Identity confirmed"));
-    }
-
-    if (r.identity === "trusted") {
-      if (r.login === "ok") {
-        items.push(item("on", "Logs in with your key",
-          adding.installedKey
-            ? p("Back on that machine, setup.sh now offers to turn off password logins. If you closed it, run ",
-                code("sudo bash setup.sh --lock"), ".")
-            : null));
-        items.push(r.x11vnc
-          ? item("on", "Screen sharing ready")
-          : item("off", "Screen sharing isn't installed",
-              p("On that machine, run ", code("sudo apt install x11vnc"), ". Terminals and commands work without it.")));
-      } else if (r.login === "needs_key" && !r.have_key) {
-        items.push(item("off", "No SSH key on this computer",
-          p("In a terminal, run ", code("ssh-keygen -t ed25519"), ", then check again.")));
-      } else if (r.login === "needs_key") {
-        const user = target.user || state.localUser;
-        const input = h("input", { type: "password", autocomplete: "off", "aria-label": `Password for ${user}` });
-        const install = h("button", { type: "button", class: "btn" }, "Install my key");
-        install.addEventListener("click", () => installKey(target, input, install));
-        input.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            install.click();
-          }
-        });
-        items.push(item("wait", "Install your key",
-          adding.installedKey
-            ? p("Your key was copied, but logging in with it still fails. If your key has a passphrase, run ",
-                code("ssh-add"), " in a terminal, then check again.")
-            : p(`Enter ${user}'s password on that machine once. It's used to copy your key there and isn't stored.`),
-          h("div", { class: "inline-form" }, input, install)));
-      } else {
-        items.push(item("off", "Login failed", p(r.error)));
+    if (!r.have_key) {
+      items.push(item("off", "No SSH key on this computer",
+        p("Restart ssh-portal with ", code("./run.sh"), " in a terminal. It offers to create one.")));
+    } else if (r.login === "ok") {
+      items.push(item("on", "Logs in with your key"));
+      if (!r.x11vnc) {
+        items.push(item("off", "Screen sharing isn't installed",
+          p("On that machine, run ", code("sudo apt install x11vnc"), ". Terminals and commands work without it.")));
       }
+      ready = true;
+    } else if (r.login === "error") {
+      items.push(item("off", "Login failed", p(r.error)));
+    } else {
+      // With an unconfirmed identity nothing has been tried yet, so the key may already be there.
+      items.push(item("wait", "Install your key",
+        adding.installedKey
+          ? p("Your key was copied, but logging in with it still fails. If it has a passphrase, run ",
+              code("ssh-add"), " in a terminal, then try again.")
+          : p(`${user}'s password on that machine. It's used once to copy your key there, and never stored.`,
+              r.identity === "unknown" ? " Leave it empty if your key is already there." : ""),
+        h("div", { class: "inline-form" },
+          h("input", { type: "password", id: "add-password", autocomplete: "off", "aria-label": `Password for ${user}` }))));
+      ready = true;
     }
   }
 
-  const list = $("add-checklist");
-  list.replaceChildren(...items);
-  list.hidden = false;
-}
-
-async function trustMachine(target, fingerprint) {
-  $("add-error").textContent = "";
-  try {
-    await api("/api/machines/trust", post({ ...target, fingerprint }));
-  } catch (err) {
-    $("add-error").textContent = err.message;
-    return;
+  // Don't lose a password typed while a check was still running.
+  const typed = $("add-password")?.value ?? "";
+  $("add-checklist").replaceChildren(...items);
+  if (typed && $("add-password")) $("add-password").value = typed;
+  const save = $("add-save");
+  const matches = r.identity === "unknown" ? "It matches, " : "";
+  save.textContent = adding.repairing
+    ? (matches ? `${matches}finish setup` : "Finish setup")
+    : (matches ? `${matches}add machine` : "Add machine");
+  save.disabled = !ready;
+  if (ready) {
+    const empty = [$("add-password"), $("add-name-field").hidden ? null : $("add-name")].find((el) => el && !el.value);
+    (empty ?? save).focus();
   }
-  await checkMachine();
 }
 
-async function installKey(target, input, button) {
-  const password = input.value;
-  input.value = "";
-  if (!password) return;
-  $("add-error").textContent = "";
-  button.disabled = true;
-  button.textContent = "Installing…";
-  try {
-    await api("/api/machines/install-key", post({ ...target, password }));
-    adding.installedKey = true;
-  } catch (err) {
-    $("add-error").textContent = err.message;
-    button.disabled = false;
-    button.textContent = "Install my key";
-    return;
-  }
-  await checkMachine();
-}
-
-async function saveMachine(event) {
+/** Trust the machine, install your key if it isn't there yet, and save it. One click from the checklist. */
+async function finishAdding(event) {
   event.preventDefault();
-  const body = {
-    name: $("add-name").value.trim(),
-    ...addTarget(),
-    display: $("add-display").value.trim() || ":0",
-  };
-  if (!body.name || !body.address) {
-    $("add-error").textContent = "Give the machine a name and an address.";
+  if (!$("add-find").hidden) {
+    continueManual(); // Enter in the address fields
     return;
   }
-  let host;
+  const r = adding.result;
+  const save = $("add-save");
+  if (!r || save.disabled) return;
+
+  const target = adding.target;
+  const name = adding.repairing ?? $("add-name").value.trim();
+  if (!adding.repairing) {
+    const problem = !name
+      ? "Give the machine a name."
+      : state.hosts.some((host) => host.name === name) ? `There's already a machine called ${name}. Pick another name.` : "";
+    if (problem) {
+      $("add-error").textContent = problem;
+      $("add-name").focus();
+      return;
+    }
+  }
+  const passwordInput = $("add-password");
+  const password = passwordInput?.value ?? "";
+  if (passwordInput) passwordInput.value = "";
+
+  $("add-error").textContent = "";
+  save.disabled = true;
+  save.textContent = adding.repairing ? "Finishing…" : "Adding…";
   try {
-    host = await api("/api/machines", post(body));
+    if (r.identity === "unknown") {
+      await api("/api/machines/trust", post({ ...target, fingerprint: r.fingerprint }));
+    }
+    let now = await api("/api/machines/check", post(target));
+    if (now.login === "needs_key" && password) {
+      await api("/api/machines/install-key", post({ ...target, password }));
+      adding.installedKey = true;
+      now = await api("/api/machines/check", post(target));
+    }
+    if (now.login !== "ok") {
+      adding.result = now;
+      renderChecklist(now);
+      if (now.login === "needs_key" && !password) {
+        $("add-error").textContent = `Enter ${target.user || state.localUser}'s password, so ssh-portal can copy your key there.`;
+      } else if (now.error) {
+        $("add-error").textContent = now.error;
+      }
+      return;
+    }
+
+    if (adding.repairing) {
+      $("add-dialog").close();
+      refreshStatus(adding.repairing);
+      return;
+    }
+    const host = await api("/api/machines", post({ name, ...target, display: adding.display }));
+    $("add-dialog").close();
+    state.hosts.push(host);
+    state.picked.add(host.name);
+    refreshMachines();
+    refreshStatus(host.name);
   } catch (err) {
     $("add-error").textContent = err.message;
-    return;
+    // Trusting may have worked before the password didn't: show where things stand now.
+    await checkMachine({ keepError: true });
   }
-  $("add-dialog").close();
-  state.hosts.push(host);
-  state.picked.add(host.name);
-  refreshMachines();
-  refreshStatus(host.name);
 }
 
 async function removeMachine(name) {
@@ -740,9 +870,19 @@ async function start() {
   $("fleet-refresh").addEventListener("click", refreshAll);
   $("focus-remove").addEventListener("click", () => state.focus && removeMachine(state.focus.name));
   $("add-open").addEventListener("click", openAddDialog);
-  $("add-check").addEventListener("click", checkMachine);
+  $("add-continue").addEventListener("click", continueManual);
+  $("add-back").addEventListener("click", () => {
+    Object.assign(adding, { target: null, result: null, installedKey: false });
+    $("add-checklist").replaceChildren();
+    addStep("find");
+  });
   $("add-cancel").addEventListener("click", () => $("add-dialog").close());
-  $("add-form").addEventListener("submit", saveMachine);
+  $("add-dialog").addEventListener("close", () => {
+    adding.nearbyRun++;
+    adding.checkRun++;
+    clearTimeout(adding.nearbyTimer);
+  });
+  $("add-form").addEventListener("submit", finishAdding);
   $("run-form").addEventListener("submit", runCommand);
   $("run-command").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("run-form").requestSubmit();

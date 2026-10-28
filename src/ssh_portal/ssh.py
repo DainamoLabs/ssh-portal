@@ -19,7 +19,15 @@ OUTPUT_LIMIT = 1_000_000  # characters per stream returned from a one-shot comma
 
 
 class HostUnavailable(Exception):
-    """A host couldn't be reached or refused us. The message is shown in the UI as-is."""
+    """A host couldn't be reached or refused us. The message is shown in the UI as-is.
+
+    `needs` says when finishing setup in the UI would fix it: "trust" for a
+    host key that isn't trusted yet, "key" when the machine refuses your key.
+    """
+
+    def __init__(self, message: str, needs: str | None = None) -> None:
+        super().__init__(message)
+        self.needs = needs
 
 
 def describe_error(exc: BaseException, host: Host) -> str:
@@ -43,6 +51,15 @@ def describe_error(exc: BaseException, host: Host) -> str:
         case asyncssh.Error():
             return f"SSH error: {exc.reason}"
     return f"{type(exc).__name__}: {exc}"
+
+
+def _needs(exc: BaseException) -> str | None:
+    match exc:
+        case asyncssh.HostKeyNotVerifiable():
+            return "trust"
+        case asyncssh.PermissionDenied():
+            return "key"
+    return None
 
 
 def _truncate(text: str | None) -> str:
@@ -113,7 +130,7 @@ class Connections:
                 conn = await asyncssh.connect(host.address, **options)
             except (OSError, asyncssh.Error) as exc:
                 log.info("connect to %s failed: %r", name, exc)
-                raise HostUnavailable(describe_error(exc, host)) from exc
+                raise HostUnavailable(describe_error(exc, host), _needs(exc)) from exc
             self._conns[name] = conn
             return conn
 
@@ -121,7 +138,7 @@ class Connections:
         try:
             await self.get(name)
         except HostUnavailable as exc:
-            return {"online": False, "error": str(exc)}
+            return {"online": False, "error": str(exc), **({"needs": exc.needs} if exc.needs else {})}
         return {"online": True}
 
     async def run(self, name: str, command: str, timeout: float) -> dict[str, Any]:

@@ -60,6 +60,16 @@ fi
 """
 
 
+# Run once your key logs in: it tells setup.sh, if it's waiting on that machine,
+# that the key works (so it can turn off passwords), then checks for x11vnc.
+KEY_LOGIN_PROBE = r"""
+if [ -n "${XDG_RUNTIME_DIR:-}" ] && mkdir -p -m 700 "$XDG_RUNTIME_DIR/ssh-portal" 2>/dev/null; then
+    : >"$XDG_RUNTIME_DIR/ssh-portal/key-login"
+fi
+command -v x11vnc >/dev/null
+"""
+
+
 class OnboardingError(Exception):
     """Something the person adding a machine needs to fix. Shown in the UI as-is."""
 
@@ -206,7 +216,7 @@ class Onboarding:
         except (OSError, asyncssh.Error) as exc:
             return {**result, "login": "error", "error": describe_error(exc, host)}
         async with conn:
-            probe = await conn.run("command -v x11vnc", check=False, timeout=self._timeout)
+            probe = await conn.run(f"sh -c {shlex.quote(KEY_LOGIN_PROBE)}", check=False, timeout=self._timeout)
         return {**result, "login": "ok", "x11vnc": probe.exit_status == 0}
 
     async def trust(self, address: str, port: int | None, fingerprint: str) -> None:
@@ -256,8 +266,8 @@ class Onboarding:
             conn = await asyncssh.connect(address, port=port or (), **options)
         except asyncssh.PermissionDenied as exc:
             raise OnboardingError(
-                "Password not accepted. If it's right, password logins may already be off on that machine "
-                "(setup.sh --lock); copy your key from a terminal that still has access instead."
+                "Password not accepted. Check it and try again. "
+                "(If password logins are already off on that machine, no password will work.)"
             ) from exc
         except asyncssh.HostKeyNotVerifiable as exc:
             raise OnboardingError("Confirm the machine's identity first.") from exc

@@ -59,9 +59,12 @@ async def test_new_machine_from_first_contact_to_key_login(fresh):
     assert keys.read_text() == fresh.client_key.export_public_key().decode().strip() + "\n"
     assert keys.stat().st_mode & 0o777 == 0o600
 
+    marker = fresh.home.parent / "run" / "ssh-portal" / "key-login"
+    assert not marker.exists()
     third = await onboarding.check(ADDRESS, fresh.port, USER)
     assert (third["identity"], third["login"]) == ("trusted", "ok")
     assert "x11vnc" in third
+    assert marker.exists()  # what setup.sh waits for before it turns off passwords
 
     # And the portal's own connections now accept the machine.
     assert await conns.status("local") == {"online": True}

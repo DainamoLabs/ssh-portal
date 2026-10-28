@@ -196,11 +196,13 @@ async def start(
     (home / ".ssh").mkdir(parents=True, exist_ok=True)
     if authorize_client:
         (home / ".ssh" / "authorized_keys").write_text(client_key.export_public_key().decode())
+    runtime = tmp / "run"
+    runtime.mkdir(mode=0o700, exist_ok=True)
     command_env = {
         "HOME": str(home),
         "USER": getpass.getuser(),
         "PATH": "/usr/local/bin:/usr/bin:/bin",
-        "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"),
+        "XDG_RUNTIME_DIR": str(runtime),
         **(env or {}),
     }
 
