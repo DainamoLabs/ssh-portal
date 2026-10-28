@@ -1,0 +1,350 @@
+@font-face { font-family: "Barlow"; font-weight: 400; font-display: swap; src: url("vendor/fonts/barlow-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-weight: 500; font-display: swap; src: url("vendor/fonts/barlow-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-weight: 600; font-display: swap; src: url("vendor/fonts/barlow-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Semi Condensed"; font-weight: 400; font-display: swap; src: url("vendor/fonts/barlow-semi-condensed-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Semi Condensed"; font-weight: 500; font-display: swap; src: url("vendor/fonts/barlow-semi-condensed-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Semi Condensed"; font-weight: 600; font-display: swap; src: url("vendor/fonts/barlow-semi-condensed-latin-600-normal.woff2") format("woff2"); }
+
+/* The screens are the content. Chrome is graphite, and the only color on the
+   page means state: a machine's LED, or a command's result. */
+:root {
+  color-scheme: dark;
+
+  --surround: #262b33;
+  --bezel: #1a1e24;
+  --bezel-edge: #323843;
+  --well: #0d0f12;
+  --key: #313844;
+  --key-edge: #3e4652;
+  --ink: #d7dce3;
+  --muted: #8b95a3;
+  --focus: #e8edf3;
+
+  --led-on: #5bd48a;
+  --led-wait: #f0b44c;
+  --led-off: #f0706a;
+
+  --font: "Barlow", system-ui, sans-serif;
+  --label: "Barlow Semi Condensed", "Barlow", system-ui, sans-serif;
+  --mono: "DejaVu Sans Mono", "Ubuntu Mono", monospace;
+
+  /* 13 / 15 / 18 / 22 */
+  --text-s: 0.8125rem;
+  --text-m: 0.9375rem;
+  --text-l: 1.125rem;
+  --text-xl: 1.375rem;
+
+  --gutter: 24px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body { height: 100%; }
+body {
+  margin: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--surround);
+  color: var(--ink);
+  font: 400 var(--text-m)/1.45 var(--font);
+}
+main { min-height: 0; }
+.view { height: 100%; min-height: 0; }
+
+button, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* ---------- top bar ---------- */
+
+.bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  padding: 10px var(--gutter);
+  background: var(--bezel);
+  border-bottom: 1px solid var(--bezel-edge);
+}
+.wordmark {
+  font: 600 var(--text-l)/1 var(--label);
+  letter-spacing: 0.01em;
+}
+.views { display: flex; gap: 4px; }
+.views button {
+  border: 0;
+  background: none;
+  padding: 8px 12px;
+  border-radius: 6px;
+  color: var(--muted);
+  font: 500 var(--text-m)/1 var(--label);
+  cursor: pointer;
+}
+.views button:hover { color: var(--ink); }
+.views button[aria-current="page"] { color: var(--ink); background: var(--key); }
+.fleet {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: var(--text-s);
+}
+
+/* ---------- shared pieces ---------- */
+
+.btn {
+  border: 1px solid var(--key-edge);
+  background: var(--key);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font: 500 var(--text-m)/1.2 var(--label);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn:hover { border-color: var(--muted); }
+.btn.quiet { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.quiet:hover { color: var(--ink); border-color: var(--key-edge); }
+.btn.primary { background: var(--ink); border-color: var(--ink); color: var(--bezel); font-weight: 600; padding: 7px 18px; }
+.btn.primary:hover { background: var(--focus); }
+.btn:disabled { opacity: 0.55; cursor: progress; }
+.btn[aria-pressed="true"] { color: var(--ink); border-color: var(--key-edge); }
+
+.led {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--led-wait);
+}
+.led[data-state="on"] { background: var(--led-on); box-shadow: 0 0 8px rgb(91 212 138 / 0.55); }
+.led[data-state="off"] { background: var(--led-off); box-shadow: 0 0 8px rgb(240 112 106 / 0.45); }
+.led[data-state="idle"] { background: var(--key-edge); }
+
+.name { font: 600 1rem/1.2 var(--label); letter-spacing: 0.01em; }
+.where { color: var(--muted); font-size: var(--text-s); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+/* A message laid over an empty screen well. */
+.notice {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
+  padding: 20px;
+  text-align: center;
+}
+.notice:empty { display: none; }
+.notice-title { font: 500 var(--text-m)/1.3 var(--label); }
+.notice-detail { max-width: 46ch; color: var(--muted); font-size: var(--text-s); white-space: pre-line; }
+.notice .btn { margin-top: 8px; position: relative; z-index: 2; }
+
+/* ---------- screen wall ---------- */
+
+.wall {
+  height: 100%;
+  overflow: auto;
+  padding: var(--gutter);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr));
+  align-content: start;
+  gap: var(--gutter);
+}
+
+.monitor {
+  background: var(--bezel);
+  border: 1px solid var(--bezel-edge);
+  border-radius: 10px;
+  padding: 10px 10px 0;
+  min-width: 0;
+}
+.well {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  background: var(--well);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.well .screen { position: absolute; inset: 0; }
+.well-hit {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.well-hit:hover { box-shadow: inset 0 0 0 2px rgb(232 237 243 / 0.35); }
+.well-hit:focus-visible { outline-offset: -2px; }
+.chin {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 2px 12px 4px;
+  min-width: 0;
+}
+.chin .actions { margin-left: auto; }
+
+.empty {
+  grid-column: 1 / -1;
+  max-width: 62ch;
+  padding-top: 8vh;
+}
+.empty h1 { font: 600 var(--text-xl)/1.2 var(--label); margin: 0 0 10px; }
+.empty p { margin: 0 0 14px; color: var(--muted); }
+.empty code, .empty pre { font-family: var(--mono); font-size: var(--text-s); }
+.empty pre {
+  margin: 0;
+  padding: 14px 16px;
+  background: var(--well);
+  border-radius: 6px;
+  overflow-x: auto;
+  color: var(--ink);
+}
+
+/* ---------- one screen, in control ---------- */
+
+#view-focus { display: grid; grid-template-rows: auto 1fr; }
+.focus-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 8px var(--gutter);
+  border-bottom: 1px solid var(--bezel-edge);
+  min-width: 0;
+}
+.focus-bar .actions { margin-left: auto; display: flex; gap: 4px; }
+.focus-screen {
+  position: relative;
+  min-height: 0;
+  background: var(--well);
+  overflow: auto;
+}
+
+/* ---------- terminals ---------- */
+
+#view-terminals { display: grid; grid-template-rows: auto 1fr; }
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px var(--gutter) 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--bezel-edge);
+}
+.tab {
+  display: flex;
+  align-items: center;
+  border-radius: 6px 6px 0 0;
+  color: var(--muted);
+}
+.tab[aria-selected="true"] { background: var(--well); color: var(--ink); }
+.tab-select, .tab-close {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tab-select { padding: 8px 4px 8px 14px; font: 500 var(--text-m)/1 var(--label); }
+.tab-close { padding: 8px 10px; font-size: 1rem; line-height: 1; color: var(--muted); }
+.tab-close:hover { color: var(--ink); }
+.term-stage { position: relative; min-height: 0; background: var(--well); }
+.term { position: absolute; inset: 0; padding: 10px 0 4px 12px; }
+.term-empty { padding: var(--gutter); max-width: 62ch; }
+.term-empty p { margin: 0 0 12px; color: var(--muted); }
+.term-empty .pick-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* ---------- run command ---------- */
+
+#view-run { overflow: auto; }
+.run, .results {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: var(--gutter) var(--gutter) 0;
+}
+.field-label {
+  display: block;
+  margin-bottom: 6px;
+  padding: 0;
+  font: 500 var(--text-s)/1.2 var(--label);
+  color: var(--muted);
+}
+#run-command {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  padding: 12px 14px;
+  background: var(--well);
+  border: 1px solid var(--bezel-edge);
+  border-radius: 6px;
+  font: 400 0.875rem/1.5 var(--mono);
+}
+.run-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  margin-top: 16px;
+}
+.picks { border: 0; margin: 0; padding: 0; min-width: 0; flex: 1; }
+.picks .row { display: flex; flex-wrap: wrap; gap: 6px; }
+.pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--key-edge);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: 500 var(--text-m)/1.2 var(--label);
+  cursor: pointer;
+}
+.pick[aria-pressed="true"] { background: var(--key); color: var(--ink); }
+.limit { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: var(--text-s); }
+.limit input {
+  width: 5.5em;
+  padding: 5px 8px;
+  color: var(--ink);
+  background: var(--well);
+  border: 1px solid var(--bezel-edge);
+  border-radius: 6px;
+}
+.hint { margin: 10px 0 0; color: var(--muted); font-size: var(--text-s); }
+
+.results { display: grid; gap: 16px; padding-bottom: var(--gutter); }
+.result {
+  background: var(--bezel);
+  border: 1px solid var(--bezel-edge);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.result-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+}
+.result-state { margin-left: auto; color: var(--muted); font-size: var(--text-s); }
+.result pre {
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--well);
+  font: 400 0.8125rem/1.5 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 420px;
+  overflow: auto;
+}
+.result pre.stderr { color: #f3a6a2; border-top: 1px solid var(--bezel-edge); }
+.result .no-output { padding: 0 14px 12px; margin: 0; color: var(--muted); font-size: var(--text-s); }
+
+@media (max-width: 640px) {
+  :root { --gutter: 16px; }
+  .fleet { margin-left: 0; width: 100%; justify-content: space-between; }
+  .chin .where { display: none; }
+}

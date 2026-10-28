@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ssh-portal</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/vendor/xterm/xterm.css">
+  <link rel="stylesheet" href="/static/style.css">
+  <script type="module" src="/static/app.js"></script>
+</head>
+<body>
+  <header class="bar">
+    <span class="wordmark">ssh-portal</span>
+    <nav class="views" aria-label="Views">
+      <button type="button" data-view="screens" aria-current="page">Screens</button>
+      <button type="button" data-view="terminals">Terminals</button>
+      <button type="button" data-view="run">Run command</button>
+    </nav>
+    <div class="fleet">
+      <span id="fleet-summary" aria-live="polite"></span>
+      <button type="button" class="btn quiet" id="fleet-refresh">Check again</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="view-screens" class="view">
+      <div class="wall" id="wall"></div>
+    </section>
+
+    <section id="view-focus" class="view" hidden>
+      <div class="focus-bar">
+        <button type="button" class="btn quiet" id="focus-back">Back to all screens</button>
+        <span class="led" id="focus-led" aria-hidden="true"></span>
+        <span class="name" id="focus-name"></span>
+        <span class="where" id="focus-where"></span>
+        <span class="actions">
+          <button type="button" class="btn quiet" id="focus-terminal">Terminal</button>
+          <button type="button" class="btn quiet" id="focus-scale" aria-pressed="true">Fit to window</button>
+          <button type="button" class="btn quiet" id="focus-full">Full screen</button>
+        </span>
+      </div>
+      <div class="focus-screen" id="focus-screen"></div>
+    </section>
+
+    <section id="view-terminals" class="view" hidden>
+      <div class="tabs" id="term-tabs" role="tablist" aria-label="Open terminals"></div>
+      <div class="term-stage" id="term-stage"></div>
+    </section>
+
+    <section id="view-run" class="view" hidden>
+      <form class="run" id="run-form">
+        <label class="field-label" for="run-command">Command</label>
+        <textarea id="run-command" rows="3" spellcheck="false" autocomplete="off"
+                  placeholder="uptime; df -h /"></textarea>
+        <div class="run-row">
+          <fieldset class="picks" id="run-picks">
+            <legend class="field-label">Machines</legend>
+          </fieldset>
+          <label class="limit">Time limit
+            <input id="run-timeout" type="number" min="1" max="3600" value="60"> s
+          </label>
+          <button type="submit" class="btn primary" id="run-submit">Run</button>
+        </div>
+        <p class="hint">Ctrl+Enter runs. Commands that ask for input, like sudo's password prompt, need a terminal instead.</p>
+      </form>
+      <div class="results" id="run-results"></div>
+    </section>
+  </main>
+</body>
+</html>
