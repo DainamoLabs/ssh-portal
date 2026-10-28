@@ -4,7 +4,7 @@ These are the steps `ssh` and `ssh-copy-id` walk you through in a terminal,
 with the same safeguards:
 
 - A host key is trusted only after you've compared its fingerprint with the
-  one the machine printed itself (setup-target.sh shows it), and only the
+  one the machine shows itself (setup.sh prints it), and only the
   exact key you compared is saved.
 - A key that differs from the one already on file is refused, never
   replaced: that's what impersonating your machine would look like.
@@ -257,7 +257,7 @@ class Onboarding:
         except asyncssh.PermissionDenied as exc:
             raise OnboardingError(
                 "Password not accepted. If it's right, password logins may already be off on that machine "
-                "(setup-target.sh --lock); copy your key from a terminal that still has access instead."
+                "(setup.sh --lock); copy your key from a terminal that still has access instead."
             ) from exc
         except asyncssh.HostKeyNotVerifiable as exc:
             raise OnboardingError("Confirm the machine's identity first.") from exc

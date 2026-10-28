@@ -14,7 +14,7 @@ USER = getpass.getuser()
 
 @pytest.fixture
 async def fresh(tmp_path):
-    """A machine straight after setup-target.sh: unknown host key, no key installed, passwords on."""
+    """A machine straight after setup.sh: unknown host key, no key installed, passwords on."""
     server = await fakesshd.start(tmp_path, password="hunter2", authorize_client=False, trust_host=False)
     yield server
     await server.close()

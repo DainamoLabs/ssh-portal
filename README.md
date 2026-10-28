@@ -41,51 +41,63 @@ carries everything over it:
 
 ## Setup
 
-### 1. On each machine you want to control
+Two scripts: `run.sh` runs on your main computer, `setup.sh` on each machine
+you want to control.
 
-Copy `scripts/setup-target.sh` over and run it from the account that logs in
-to that machine's desktop:
+### Once, on your main computer
 
-```sh
-sudo ./setup-target.sh
-```
-
-It installs `openssh-server` and `x11vnc`, prints the machine's SSH host key
-fingerprint, and tells you what to run next.
-
-### 2. On the machine you'll run ssh-portal from
-
-Once, if you don't have an SSH key yet (use a passphrase; ssh-agent remembers it):
+Create an SSH key if you don't have one. Use a passphrase, and load the key
+into ssh-agent so the portal can use it:
 
 ```sh
 ssh-keygen -t ed25519
+ssh-add          # again after you log in, if the portal ever says "Key not accepted"
 ```
 
-Then start the portal and click **Add machine**:
+Then start the portal with `./run.sh` (see [Running it](#running-it)).
+
+### For each machine you want to control
+
+1. **On that machine**, logged in to its desktop, run:
+
+   ```sh
+   sudo bash setup.sh
+   ```
+
+   It installs `openssh-server` and `x11vnc`, then shows the name, address
+   and user to enter in the portal, and the fingerprint to compare. Leave it
+   running. To get the file there, copy it on a USB stick, or, if this
+   repository is public, download it:
+
+   ```sh
+   wget https://raw.githubusercontent.com/DainamoLabs/ssh-portal/master/setup.sh
+   ```
+
+2. **In the portal**, click **Add machine**, enter what `setup.sh` shows, and
+   click **Check connection**. A checklist walks you through the rest:
+
+   - **Confirm it's the right machine.** The fingerprint must match the one
+     `setup.sh` shows, exactly. This is what stops anything else on your
+     network from posing as that machine, so do compare it.
+   - **Install your key.** Enter your password for that machine once. It's
+     used for a single login that copies your public key there, and is
+     never stored.
+   - **Screen sharing.** Tells you if x11vnc is missing.
+
+   Click **Add machine**. It's saved to `~/.config/ssh-portal/hosts.toml` and
+   appears right away. **Remove** (in a machine's full-screen view) takes it
+   out again.
+
+3. **Back on that machine**, `setup.sh` notices your key arrived. It offers
+   to turn off password logins (say yes), and asks whether the machine runs
+   without a monitor (see [below](#machines-without-a-monitor)).
+
+Each step can also be run on its own later:
 
 ```sh
-./run.sh
-```
-
-Enter the machine's name, address and your user on it, and click **Check
-connection**. A checklist walks you through the rest:
-
-- **Confirm it's the right machine.** Compare the fingerprint with the one
-  `setup-target.sh` printed. This is the step that stops anything else on
-  your network from posing as that machine, so do actually compare it.
-- **Install your key.** Enter your password for that machine once. It's
-  used for a single login that copies your public key there, and is never
-  stored.
-- **Screen sharing.** Tells you if x11vnc is missing.
-
-**Add machine** saves it to `~/.config/ssh-portal/hosts.toml` and it appears
-right away. **Remove** (in a machine's full-screen view) takes it out again.
-
-### 3. Back on each machine: turn off password logins
-
-```sh
-sudo ./setup-target.sh --lock                       # keys only, no root, only you
-sudo ./setup-target.sh --allow-from 192.168.1.0/24  # optional: firewall SSH to your LAN
+sudo bash setup.sh --lock                       # keys only, no root, only you
+sudo bash setup.sh --autologin                  # start the desktop at boot
+sudo bash setup.sh --allow-from 192.168.1.0/24  # optional: firewall SSH to your LAN
 ```
 
 ### Editing the machine list by hand
@@ -123,8 +135,9 @@ or `./run.sh --port 8765` for a fixed port.
 The portal shows the desktop of whoever is logged in, so a machine with no
 monitor or keyboard needs two things:
 
-1. **A desktop session at boot.** `sudo ./setup-target.sh --autologin` sets
-   LightDM to log you in automatically. The trade-off is that anyone at that
+1. **A desktop session at boot.** Answer yes when `setup.sh` asks, or run
+   `sudo bash setup.sh --autologin`. It sets LightDM to log you in
+   automatically. The trade-off is that anyone at that
    machine's keyboard gets your session.
 2. **A display to draw on.** With nothing plugged in, many graphics drivers
    start X at a small fallback resolution or with no screen at all. A
@@ -139,7 +152,7 @@ Every error in the UI says what to do. The common ones:
 | --- | --- |
 | Host key not trusted yet | `ssh you@machine` once in a terminal and accept the fingerprint |
 | Key not accepted | `ssh-copy-id you@machine`, and `ssh-add` if your key has a passphrase |
-| Connection refused | run `setup-target.sh` on that machine (openssh-server isn't running) |
+| Connection refused | run `setup.sh` on that machine (openssh-server isn't running) |
 | x11vnc is not installed | `sudo apt install x11vnc` on that machine |
 | x11vnc exited. Is someone logged in…? | log in on that machine, or use `--autologin` |
 

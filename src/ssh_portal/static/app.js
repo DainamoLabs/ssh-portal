@@ -122,8 +122,8 @@ function buildWall() {
       state.editable
         ? h("div", { class: "empty" },
             h("h1", {}, "No machines yet"),
-            h("p", {}, "Run ", h("code", {}, "scripts/setup-target.sh"),
-              " on each machine you want to control, then add it here."),
+            h("p", {}, "Run ", h("code", {}, "sudo bash setup.sh"),
+              " on each machine you want to control. It shows what to enter here."),
             h("button", { type: "button", class: "btn primary", onclick: openAddDialog }, "Add a machine"))
         : h("div", { class: "empty" },
             h("h1", {}, "No machines yet"),
@@ -600,7 +600,7 @@ function renderChecklist(target, r) {
 
     if (r.identity === "unknown") {
       items.push(item("wait", "Confirm it's the right machine",
-        p("Compare this with the ", r.key_type, " fingerprint that setup-target.sh printed on that machine:"),
+        p("Compare it with the fingerprint setup.sh shows on that machine. They must match exactly:"),
         h("code", { class: "fingerprint" }, r.fingerprint),
         h("button", { type: "button", class: "btn", onclick: () => trustMachine(target, r.fingerprint) },
           "It matches, trust this machine")));
@@ -617,7 +617,8 @@ function renderChecklist(target, r) {
       if (r.login === "ok") {
         items.push(item("on", "Logs in with your key",
           adding.installedKey
-            ? p("Now turn off password logins on that machine: ", code("sudo ./setup-target.sh --lock"))
+            ? p("Back on that machine, setup.sh now offers to turn off password logins. If you closed it, run ",
+                code("sudo bash setup.sh --lock"), ".")
             : null));
         items.push(r.x11vnc
           ? item("on", "Screen sharing ready")
